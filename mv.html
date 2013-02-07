@@ -1,0 +1,607 @@
+<html>
+	<head>
+	    <script type="text/javascript" src="ajax.js"></script>
+
+    	    <script type="text/javascript" >
+	
+		var ajaxReq = new AjaxRequest();
+		var tokenReq = new AjaxRequest();
+ 		function popup(strURL) {
+ 			window.open( strURL, '', 'toolbar=no,location=no,width=640,height=700,scrollbars=yes,resizable=yes' );
+		return false;
+		}
+ 
+		function getMCPic(url) {
+				var token=document.token.token.value;
+				popup("pic.php?picurl="+url+"&token="+token);
+			}
+	
+		function enableDiable(id1,id2) {
+			document.getElementById(id1).disabled=false;
+			document.getElementById(id2).disabled=true;
+		}
+
+      		function getToken() {
+			setStatus("Refreshing Token...");
+        		tokenReq.send("get","https://commerce.reuters.com/rmd/rest/xml/login?" + "username=" + document.token.username.value +  "&password=" + document.token.password.value,  setTokenHandler );
+      		}
+
+      		function setTokenHandler() {
+        		if (tokenReq.getReadyState() == 4 && tokenReq.getStatus() == 200) {
+				clearStatus();
+				var doc = tokenReq.getResponseXML();
+				var token = doc.getElementsByTagName( "authToken")[0].firstChild.nodeValue; 
+      		    		document.token.token.value=token;
+		    		document.article.token.value=token;
+		    		document.search.token.value=token;
+		    		document.itemEntities.token.value=token;
+				getSelectChannel();
+	 		}else if ( tokenReq.getReadyState() == 4 && tokenReq.getStatus() == 400 ) {
+				clearStatus();
+				alert( "Server return code 400. Check your inputs." );
+			}
+
+      		}
+
+		function getChannel() {
+			clearTable('channelsDiv'); 
+			clearTable('articlesDiv'); 
+			setStatus("Retriving Channels from MC...");
+			ajaxReq.send("get","http://rmb.reuters.com/rmd/rest/xml/channels?"+"token="+document.token.token.value	, setChannelsHandler);
+
+		}
+	
+		function getSelectChannel() {
+			var selectChannel=document.getElementById('selectChannel');
+			if( selectChannel==null || selectChannel.length==0) {
+				setStatus("Retriving Channels from MC...");
+				ajaxReq.send("get","http://rmb.reuters.com/rmd/rest/xml/channels?"+"token="+document.token.token.value	, setSelectChannelsHandler);
+			}
+		}
+		
+		function setSelectChannelsHandler() {
+			if (ajaxReq.getReadyState() == 4 && ajaxReq.getStatus() == 200) {
+				try {
+					clearStatus();
+					var doc = ajaxReq.getResponseXML();
+					var channels = doc.getElementsByTagName( "channelInformation");
+					for(var i = 0; i< channels.length; i++ ) {
+						addSelectedChannel(channels[i]);
+					}
+					handleError(doc);
+				} catch( e ) {
+					alert(e);
+				}
+			} else if ( ajaxReq.getReadyState() == 4 && ajaxReq.getStatus() == 400 ) {
+				clearStatus();
+				alert( "Server return code 400. Check your inputs." );
+			}
+		}
+
+
+	
+		function setChannelsHandler() {
+        		if (ajaxReq.getReadyState() == 4 && ajaxReq.getStatus() == 200) {
+				try {
+					clearStatus();
+					var doc = ajaxReq.getResponseXML();
+					var channels = doc.getElementsByTagName( "channelInformation");
+					for(var i = 0; i< channels.length; i++ ) {
+						addChannel(channels[i]);
+					}
+					handleError(doc);
+				} catch( e ) {
+					alert(e);
+				}
+			} else if ( ajaxReq.getReadyState() == 4 && ajaxReq.getStatus() == 400 ) {
+				clearStatus();
+				alert( "Server return code 400. Check your inputs." );
+			}
+		}
+
+		function setUSN(id) {
+			var reqName=getReqFromId(id);
+			eval("var "+reqName+" = new AjaxRequest()");
+			eval( reqName+".sendP('get','http://rmb.reuters.com/rmd/rest/xml/item?'+'token='+ document.token.token.value+'&id='+\""+id+"\", setUSNHandler,"+reqName+")");
+		}
+
+		function getReqFromId(id) {
+			var req=id.replace(/[^a-zA-Z0-9]/g,'');
+			return req;
+		}
+
+		function getTypeFromDoc(doc) {
+			var typeElems = doc.getElementsByTagName("itemClass");
+			if( typeElems!=null&& typeElems.length>0) {
+				var typeElem=typeElems[0];
+				var type = typeElem.getAttribute("qcode");
+				return type;
+			}
+		}
+
+		function setUSNHandler(ajaxReq) {
+			var P_COMP="pmt:composite";
+			var I_COMP="icls:composite";
+			
+			var P_TXT="pmt:text";
+			var I_TXT="icls:text";
+
+			var P_PIC="pmt:picture";
+			var I_PIC="icls:picture";
+
+  			if (ajaxReq.getReadyState() == 4 && ajaxReq.getStatus() == 200) {
+                		try {
+					var usn="";
+                                        var doc = ajaxReq.getResponseXML();
+					var id=getIDFromDoc(doc);
+					var rev_date=getRevDateFromDoc(doc) ;
+ 					var type = getTypeFromDoc(doc);
+					if( type==P_COMP||type==I_COMP ) {
+						usn = getUSNFromPackage(doc) ;
+						if( usn==null|| usn=="" ) {
+							usn = "Headline List";
+						} else {
+							usn=generateUid(usn,rev_date);
+						}
+					} else if ( type==P_TXT ||type==I_TXT) {
+						usn = getUSNFromTxt(doc);
+						usn=generateUid(usn,rev_date);
+					} else if( type==P_PIC||type==I_PIC ) {
+						usn="Picture";
+					}
+					if( usn!=null && usn != "" && usn!="Picture" ) {
+						setUSNById(id,usn);	
+					} else if(usn=="Picture") {
+						var picurl=searchFromDoc("rtr:altLoc","BASEIMAGE",doc);
+						picurl="pic.php?picurl="+picurl+"&token="+document.token.token.value;
+						var tr=document.getElementById(id);
+						addLinkTD(tr,picurl,usn);
+					}
+				} catch( e ) {
+//                        		alert("set usn error:" + e);
+                        	}
+                	}
+		}
+	
+		
+	
+		function generateUid(usn,rdate) {
+			if( usn==null||usn=="") {
+				return "";
+			}
+			var date=new Date(rdate);
+			var year=date.getFullYear();
+
+                      var mon=date.getUTCMonth()+1;if(mon<10){ mon='0'+mon;}
+                        var day=date.getUTCDate();if(day<10) { day='0'+day;}
+
+			return usn+year+mon+day;
+		}
+
+		function setUSNById(id,usn) {
+			var tr=document.getElementById(id);
+			var edition=document.articles.edition.value;
+			if(edition==""||usn=="" || usn=="Headline List"||usn=="Picture") {
+				addTextTD(tr,usn);
+			} else {
+				usn=edition+usn;
+				
+				var url="http://"+getEditionPre(edition)+".reuters.com/article/id"+usn;
+				addLinkTD(tr,url,usn);
+			}
+		}
+
+		function getEditionPre(edition) {
+			if( edition=="US") {
+				return "www";
+			} else {
+				return edition.toLowerCase();
+			}
+		}
+
+		function getRevDateFromDoc(doc) {
+			return getSomethingFromDoc("versionCreated",doc);
+		}
+
+		function getSomethingFromDoc(something,doc) {
+			var things=doc.getElementsByTagName(something);
+			if(things!=null&&things.length   > 0 && things[0].firstChild!=null) {
+				return things[0].firstChild.nodeValue;
+            } else {
+                return ""
+            }
+		}
+
+		function searchFromDoc(something,search,doc) {
+			var things=doc.getElementsByTagName(something);
+			for( var i=0; i< things.length;i++) {
+				var value=things[i].firstChild.nodeValue;
+				if(value.indexOf(search)!=-1 ) {
+					return value;
+				}
+			}
+		}
+
+		function getIDFromDoc(doc) {
+			return getSomethingFromDoc("transmitId",doc);
+		}
+
+		function getUSNFromTxt(doc) {
+			return getSomethingFromDoc("altId",doc);
+		}
+
+		function getUSNFromPackage(doc) {
+			var textElem=getTextFromPackage(doc);
+			if( textElem!=null ) {
+				return getUSNFromTxt(textElem);
+			}	
+		}
+
+		function getTextFromPackage(doc) {
+			var items = doc.getElementsByTagName("itemRef");
+			for( var i = 0; i< items.length; i++)	{
+				if(isText(items[i])) {
+					return items[i];
+				}
+			}
+		}
+
+		function isText(doc) {
+			var classes=doc.getElementsByTagName("itemClass");
+			if(classes==null||classes=="") return;
+			var myclass = classes[0];
+			var type=myclass.getAttribute("qcode");
+			if( type=="icls:text"||type=="pmt:text" ) {
+				return true;
+			}
+			return false;
+		}
+
+		function addSelectedChannel(channel) {
+			var alias=channel.getElementsByTagName( "alias")[0].firstChild.nodeValue;	
+			var description=channel.getElementsByTagName( "description")[0].firstChild.nodeValue;
+			var opa = document.createElement("OPTION");
+			opa.value=alias;
+			var texta = document.createTextNode(alias+": \t"+description);
+			opa.appendChild(texta);
+
+			var ops = document.getElementById('selectChannel');
+			ops.appendChild(opa);
+		}
+
+		function addChannel(channel) {
+			var description=channel.getElementsByTagName( "description")[0].firstChild.nodeValue;
+			var alias=channel.getElementsByTagName( "alias")[0].firstChild.nodeValue;	
+
+			var type="";
+			var category =channel.getElementsByTagName( "category" );
+			if(category != null && category.length>0 ) {
+				type=category[0].getAttribute("id");
+			}
+			var table= document.getElementById('channelsDiv');
+			var tr = document.createElement("TR");
+
+			var tdd = document.createElement("TD");
+			var textd= document.createTextNode(description);
+			tdd.appendChild(textd);
+
+			var tda = document.createElement("TD");
+
+			var ahref=document.createElement("A");
+
+			var url="http://rmb.reuters.com/rmd/rest/xml/items?token="+document.token.token.value+ "&channel="+alias; 
+			pUrl='/xmlproxy.php?url='+encodeURIComponent(url);
+			ahref.setAttribute("href",pUrl ); 
+			
+			var texta = document.createTextNode(alias);
+			ahref.appendChild(texta);
+			tda.appendChild(ahref);
+	
+			var tdt = document.createElement("TD");
+			var textt= document.createTextNode(type);
+			tdt.appendChild(textt);
+
+			tr.appendChild(tda);
+			tr.appendChild(tdd);
+			tr.appendChild(tdt);
+			table.appendChild(tr);
+		}
+		
+		function openArticleLink(id) {
+			var token=document.token.token.value;
+			var url='http://rmb.reuters.com/rmd/rest/xml/item?' + 'id='+id+'&token='+token;
+			var pUrl=getPUrl(url);
+			window.open(pUrl, "_blank");	
+		}
+
+		function getPUrl(url) {
+			return '/xmlproxy.php?url='+encodeURIComponent(url);
+		}
+
+		function getArticles() {
+			clearTable('articlesDiv'); 
+			clearTable('channelsDiv'); 
+			var channel=document.articles.channel.value;
+			
+			var checkedAlias=document.getElementById("alias1").checked;
+			if(checkedAlias!=true) {
+				channel=document.articles.selectChannel.value;
+			}
+			var tokenstr="token="+ document.token.token.value;
+			var channelstr="&channel="+channel;
+			var datestr="";
+			if( document.articles.daterange.value!= null && document.articles.daterange.value!="" ) {
+				datestr="&daterange=" + document.articles.daterange.value;
+			}
+			setStatus("Retriving articles in channel: "+channel);
+	
+        		ajaxReq.send("get","http://rmb.reuters.com/rmd/rest/xml/items?"+tokenstr+channelstr + datestr, setArticlesHandler);
+
+		}
+		
+		function setArticlesHandler() {
+        		if (ajaxReq.getReadyState() == 4 && ajaxReq.getStatus() == 200) {
+				try {
+					clearStatus();
+					var doc = ajaxReq.getResponseXML();
+					var arts= doc.getElementsByTagName( "result");
+					if(arts.length==0) {
+						alert("No Article Found!");
+					}
+					for(var i = 0; i< arts.length; i++ ) {
+						addArticle(arts[i]);
+					}
+					handleError(doc);
+				} catch( e ) {
+					alert(e);
+				}
+			}else if ( ajaxReq.getReadyState() == 4 && ajaxReq.getStatus() == 400 ) {
+				clearStatus();
+				alert( "Server return code 400. Check your inputs." );
+			}
+
+		}
+
+		function addArticle(article) {
+			var id=article.getElementsByTagName( "id")[0].firstChild.nodeValue;
+//			var guid=article.getElementsByTagName( "guid")[0].firstChild.nodeValue;
+//			var version=article.getElementsByTagName( "version")[0].firstChild.nodeValue;
+//			var slug=article.getElementsByTagName( "slug")[0].firstChild.nodeValue;
+			var date=article.getElementsByTagName( "dateCreated")[0].firstChild.nodeValue;
+            var headline=getSomethingFromDoc("headline", article);
+            if(headline == null || headline == "" ) {
+                headline = "no headline";
+            }
+
+			var table= document.getElementById('articlesDiv');
+			var tr = document.createElement("TR");
+			tr.setAttribute("id",id);
+			addTextTD(tr,id);
+			addTextTD(tr,date);
+			url='http://rmb.reuters.com/rmd/rest/xml/item?token='+document.token.token.value+'&id='+id;
+			pUrl='/xmlproxy.php?url='+encodeURIComponent(url);
+			addLinkTD(tr,pUrl,headline);
+			table.appendChild(tr);
+
+            var type = article.getElementsByTagName( "mediaType")[0].firstChild.nodeValue;
+            if( type == "V" ) {
+                var slug=getSomethingFromDoc("slug", article);
+                var editNumber = getSomethingFromDoc( "editNumber",article);
+                var remoteContentComplete = getSomethingFromDoc( "remoteContentComplete",article);
+                addTextTD(tr,slug);
+                addTextTD(tr,editNumber);
+                if (remoteContentComplete!="" )addTextTD(tr,"remoteContentComplete:"+remoteContentComplete);
+            } else {
+			    setUSN(id);
+            }
+		}
+
+		function addTextTD(tr,text) {
+			var tdd = document.createElement("TD");
+			var textd= document.createTextNode(text);
+			tdd.appendChild(textd);
+			tr.appendChild(tdd);
+		}
+
+		function addLinkTD(tr,url,text) {
+			var tda = document.createElement("TD");
+			var ahref=document.createElement("A"); 
+			ahref.setAttribute("target","_blank");
+			ahref.setAttribute("href",url);		
+			var texta = document.createTextNode(text);
+			ahref.appendChild(texta);
+			tda.appendChild(ahref);
+	
+			tr.appendChild(tda);
+	
+		}
+
+		function clearTable(id) {
+			var table = document.getElementById(id);
+  			for(var i=0;i<table.childNodes.length;) {
+        			table.removeChild(table.childNodes[i]);
+ 	 		}			
+		}
+
+		function handleError(doc) {
+		}
+
+		function searchArticles() {
+                        clearTable('channelsDiv');
+                        clearTable('articlesDiv');
+			
+			var channelstr="";
+			var channel=document.search.channel.value;
+			if(channel!=null && channel!="") {
+				channelList=channel.split(" ");
+				for( var i=0; i< channelList.length;i++ ) {
+					channelstr+="&channel="+channelList[i];
+				}
+			}
+
+			var tokenstr="token="+ document.token.token.value;
+	
+			var datestr="";
+			if( document.search.daterange.value!= null && document.search.daterange.value!="" ) {
+				datestr="&dateRange=" + document.search.daterange.value;
+			}
+
+			var q=document.search.q.value;
+			q=decodeURI(q);
+			q=q.replace(/^q=/,"");
+
+					
+
+			var query="&q="+ q;
+			var param=tokenstr+channelstr + datestr+query;
+
+			setStatus("Search for "+ q); 
+		
+        		ajaxReq.send("get","http://rmb.reuters.com/rmd/rest/xml/search?"+param, setArticlesHandler);
+
+		}
+
+		function guess() {
+			var q=document.search.q.value;
+			document.search.channel.value=getChannelStrFromQ(q, document.search.channel.value);
+			document.search.q.value=decodeURI(getQFromQ(document.search.q.value));
+		}
+
+		function getChannelStrFromQ( q, oriChs ) {
+			var channelStr="";
+			if(q.indexOf("channel=") == -1) {
+				return oriChs ;
+			}
+
+			var params=q.split("&");
+			for( var i = 0; i < params.length; i++ ) {
+				if(params[i].indexOf("channel=") != -1 ) {
+					channelStr+=params[i].substring(params[i].indexOf("=")+1);
+					channelStr+=" ";
+				}
+			}
+			return channelStr.trim();
+		}
+
+		function getQFromQ(q) {
+			q=q.replace(/&channel=\w*|channel=\w*&/g,"");
+                        if(q.indexOf("q=") == -1) {
+                                return q;
+                        }
+
+                        var params=q.split("&");
+                        for( var i = 0; i < params.length; i++ ) {
+                                if(params[i].indexOf("q=") != -1 ) {
+                                        q=params[i].substring(params[i].indexOf("=")+1);
+					break;
+                                }
+                        }
+			return q.trim();
+		}
+		
+		function setStatus( param ) {
+			document.getElementById("status").innerHTML="<h2>" + param+" </h2>";
+		}
+	
+		function clearStatus() {
+			document.getElementById("status").innerHTML="";
+		}
+			function enc(url) {
+				var tmp = url.replace(/\"/g,"%22");
+				tmp=tmp.replace(/ /g,"%20");
+				return tmp;
+			}
+
+
+	    </script>
+	</head>
+	<body onload="getToken()">
+
+1.	To obtain a token for Web Services with your new username and password,  use the following URL:
+	<form name='token' action='https://commerce.reuters.com/rmd/rest/xml/login?' target='_blank'>
+		Username: <input type='text' name='username' value='yicha_ding'/>
+		Password: <input type='text' name='password' value='Erlang4901'/><br/>
+		Token:<input type='text' name='token' size=80 align='right'  /><br/>
+		<input type='button' value="Get a token" onclick='clearStatus(),getToken()' />
+	</form>
+
+2.	Then, use the following URL to obtain a list of the channels to which you have access:
+	<form name='channels' action='http://rmb.reuters.com/rmd/rest/xml/channels?' target='_blank'>
+		<input type="button" value="List Channels" onclick='clearStatus(),getChannel()'/>
+	</form>
+
+3.	To retrieve content for a specific channel (e.g., US Online Report Top News), you might use a URL that appears as follows:
+	<form name='articles' action='http://rmb.reuters.com/rmd/rest/xml/items?channel=Eup071&token=<AUTH_TOKEN>' target='_blank'>
+		<input type="radio" name="which" id="alias1" onclick="enableDiable('channelAlias','selectChannel')" />
+		Channel Alias: <input type='text' name='channel' size=80 id='channelAlias' disabled="disabled" /><br/>
+		<input type="radio" name="which" id="alias2"  checked="true" onclick="enableDiable('selectChannel','channelAlias')"/>
+		Channel Description:<select id='selectChannel'></select><br/>
+		Date Range: <input type='text' name='daterange' size=80>(e.g 2011.11.11-2011.11.12)<br/>
+		Edition:
+<select id="edition">
+<option></option>
+<option>US</option>
+<option>UK</option>
+<option>IN</option>
+<option>CN</option>
+<option>JP</option>
+<option>AF</option>
+<option>AR</option>
+<option>ARA</option>
+<option>BR</option>
+<option>CA</option>
+<option>DE</option>
+<option>ES</option>
+<option>FR</option>
+<option>IT</option>
+<option>LTA</option>
+<option>MR</option>
+<option>MX</option>
+<option>RU</option>
+<option>ZA</option>
+		</select>
+
+		<input type="button" value="List Articles" onclick='clearStatus(),getArticles()'/>
+	</form>
+
+
+4.	To retrieve the NewsML for an item
+	<form name='article' action='http://rmb.reuters.com/rmd/rest/xml/item?' target='_blank'>
+		<input type='hidden' name='token' size=80/>
+		Id:<input type='text' name='id' size=80/>(e.g tag:reuters.com,0000:newsml_DEE7A900C) <br/>
+		<input type="button" value="Get Story" onclick="openArticleLink(this.form.id.value)"/>
+	</form>
+
+
+5.	To search the items
+	<form name='search' action='http://rmb.reuters.com/rmd/rest/xml/search?' target='_blank'>
+		<input type='hidden' name='token' size=80/>
+		q:<input type='text' name='q' size=80/>(e.g topic:"OCC:OLRPIX", id:"****", headline:"obama")<br/>
+		Channel:<input type='text' name='channel' size=80/><br/>
+		Date Range: <input type='text' name='daterange' size=80><br/>
+		
+		<input type="button" value="QQQ" onclick="guess(),clearStatus(),searchArticles()"/>
+		<input type="button" value="EncodeMe" onclick="document.search.q.value=enc(document.search.q.value)"/>
+		<input type="button" value="DecodeMe" onclick="document.search.q.value=decodeURI(document.search.q.value)"/>
+	</form>
+
+6.	This method is used to retrieve the entities and their details, given a particular news item. 
+	<form name='itemEntities' action='http://rmb.reuters.com/rmd/rest/xml/itemEntities?' target='_blank'>
+		<input type='hidden' name='token' size=80/>
+		Id:<input type='text' name='id' size=80/><br/>
+		<input type="submit" value="Get Item Entities"/>
+	</form>
+
+	<table id='channelsDiv'/>
+	<table id='articlesDiv'/>
+	<div id='status'/>
+
+
+		
+
+
+
+
+	</body>
+
+</html>
